@@ -298,4 +298,5 @@ For questions and support:
 
 ---
 
-**I.F.C - Empowering Farmers, Connecting Communities, Revolutionizing Agriculture** 🌾
+**I.F.C - Empowering Farmers, Connecting Communities, Revolutionizing Agriculture** 🌾#   a g r  
+ 
