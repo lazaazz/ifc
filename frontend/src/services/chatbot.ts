@@ -8,6 +8,7 @@ export interface ChatMessage {
   text: string;
   sender: 'user' | 'bot';
   timestamp: Date;
+  language?: string;
 }
 
 export interface ChatResponse {
@@ -16,25 +17,45 @@ export interface ChatResponse {
   fallbackResponse?: string;
   message?: string;
   error?: string;
+  language?: string;
 }
 
 export interface SuggestionsResponse {
   success: boolean;
-  suggestions: string[];
+  suggestions: {
+    en: string[];
+    ml: string[];
+  };
 }
 
-// Send message to Digital Krishi Officer
+// Detect language in text
+export const detectLanguage = (text: string): string => {
+  const malayalamPattern = /[\u0D00-\u0D7F]/;
+  return malayalamPattern.test(text) ? 'ml' : 'en';
+};
+
+// Send message to Digital Krishi Officer with language detection
 export const sendMessageToBot = async (
   message: string, 
   userInfo?: any, 
-  documentContext?: string
+  documentContext?: string,
+  isVoiceInput?: boolean
 ): Promise<ChatResponse> => {
   try {
-    const payload: { message: string; context: any } = {
+    const detectedLanguage = detectLanguage(message);
+    
+    const payload: { 
+      message: string; 
+      context: any;
+      preferredLanguage?: string;
+      isVoiceInput?: boolean;
+    } = {
       message: message.trim(),
       context: {
         ...userInfo,
       },
+      preferredLanguage: detectedLanguage,
+      isVoiceInput: isVoiceInput || false
     };
 
     if (documentContext) {
@@ -57,7 +78,8 @@ export const sendMessageToBot = async (
       return {
         success: false,
         message: 'Unable to connect to Digital Krishi Officer. Please make sure the backend server is running.',
-        fallbackResponse: "I'm Digital Krishi Officer, but I'm currently offline. Please check your connection and try again. I'm here to help with all your farming questions!"
+        fallbackResponse: "I'm Digital Krishi Officer, but I'm currently offline. Please check your connection and try again. I'm here to help with farming, technology, education, health, or any other questions you might have!",
+        language: 'en'
       };
     }
 
@@ -66,7 +88,8 @@ export const sendMessageToBot = async (
       return {
         success: false,
         message: 'Request timeout',
-        fallbackResponse: "Sorry, I'm taking too long to respond. As Digital Krishi Officer, I'm here to help with farming advice. Please try asking your question again!"
+        fallbackResponse: "Sorry, I'm taking too long to respond. As Digital Krishi Officer, I'm here to help with farming advice, technology questions, health tips, or any other topic you'd like to discuss. Please try asking your question again!",
+        language: 'en'
       };
     }
 
@@ -78,19 +101,20 @@ export const sendMessageToBot = async (
     return {
       success: false,
       message: 'An unexpected error occurred',
-      fallbackResponse: "I'm Digital Krishi Officer, and something went wrong. I'm here to help with crop cultivation, livestock care, farming techniques, and agricultural advice. Please try again!"
+      fallbackResponse: "I'm Digital Krishi Officer, and something went wrong. I'm here to help with farming, technology, education, health, business, or any other topic you'd like to discuss. Please try again!",
+      language: 'en'
     };
   }
 };
 
-// Get quick suggestions
-export const getBotSuggestions = async (): Promise<string[]> => {
+// Get quick suggestions with multilingual support
+export const getBotSuggestions = async (): Promise<{ en: string[]; ml: string[] }> => {
   try {
     const response = await axios.get(`${API_BASE_URL}/suggestions`, {
       timeout: 10000 // 10 second timeout
     });
 
-    if (response.data.success) {
+    if (response.data.success && response.data.suggestions) {
       return response.data.suggestions;
     }
     
@@ -102,16 +126,28 @@ export const getBotSuggestions = async (): Promise<string[]> => {
 };
 
 // Default suggestions when API is unavailable
-const getDefaultSuggestions = (): string[] => [
-  "What crops are best for monsoon season?",
-  "How to prevent pest attacks naturally?",
-  "What government schemes are available for farmers?",
-  "Best irrigation methods for water conservation",
-  "How to improve soil fertility organically?",
-  "Market prices for wheat and rice today",
-  "Modern farming techniques for small farmers",
-  "How to get agricultural loans?"
-];
+const getDefaultSuggestions = (): { en: string[]; ml: string[] } => ({
+  en: [
+    "What crops are best for monsoon season?",
+    "How to prevent pest attacks naturally?",
+    "What are the latest farming technologies?",
+    "How to start a small business in agriculture?",
+    "What is artificial intelligence and its applications?",
+    "Tips for healthy living and nutrition",
+    "How to improve soil fertility organically?",
+    "Best online learning platforms for skill development"
+  ],
+  ml: [
+    "മഴക്കാലത്തിന് ഏറ്റവും നല്ല വിളകൾ ഏവയാണ്?",
+    "പ്രകൃതിദത്ത മാർഗ്ഗങ്ങളിലൂടെ കീട ആക്രമണം എങ്ങനെ തടയാം?",
+    "കൃഷിയിലെ ഏറ്റവും പുതിയ സാങ്കേതികവിദ്യകൾ എന്തൊക്കെയാണ്?",
+    "കാർഷിക മേഖലയിൽ ചെറുകിട ബിസിനസ് എങ്ങനെ തുടങ്ങാം?",
+    "കൃത്രിമ ബുദ്ധി എന്താണ്, അതിന്റെ ഉപയോഗങ്ങൾ എന്തൊക്കെ?",
+    "ആരോഗ്യകരമായ ജീവിതത്തിനും പോഷകാഹാരത്തിനുമുള്ള നിർദ്ദേശങ്ങൾ",
+    "ഓർഗാനിക് രീതിയിൽ മണ്ണിന്റെ ഫലഭൂയിഷ്ഠത എങ്ങനെ വർദ്ധിപ്പിക്കാം?",
+    "കഴിവ് വികസനത്തിനുള്ള മികച്ച ഓൺലൈൻ പഠന പ്ലാറ്റ്‌ഫോമുകൾ"
+  ]
+});
 
 // Check if chatbot service is healthy
 export const checkBotHealth = async (): Promise<boolean> => {

@@ -22,7 +22,8 @@ import {
   getBotSuggestions,
   checkBotHealth,
   generateMessageId,
-  formatMessageTime
+  formatMessageTime,
+  detectLanguage
 } from '../services/chatbot';
 
 // Custom Speech Recognition Hook
@@ -68,10 +69,12 @@ const useSpeechRecognition = () => {
     }
   }, []);
 
-  const startListening = () => {
+  const startListening = (language?: 'en' | 'ml') => {
     if (recognitionRef.current && !listening) {
       setListening(true);
       setTranscript('');
+      // Set language for recognition
+      recognitionRef.current.lang = language === 'ml' ? 'ml-IN' : 'en-US';
       recognitionRef.current.start();
     }
   };
@@ -102,13 +105,15 @@ const KrishiOfficerBot: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<{ en: string[]; ml: string[] }>({ en: [], ml: [] });
+  const [currentLanguage, setCurrentLanguage] = useState<'en' | 'ml'>('en');
   const [isHealthy, setIsHealthy] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [documentId, setDocumentId] = useState<string | null>(null);
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [isVoiceInput, setIsVoiceInput] = useState(false);
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -125,6 +130,10 @@ const KrishiOfficerBot: React.FC = () => {
   useEffect(() => {
     if (transcript) {
       setInputMessage(transcript);
+      setIsVoiceInput(true);
+      // Auto-detect language from transcript
+      const detectedLang = detectLanguage(transcript);
+      setCurrentLanguage(detectedLang as 'en' | 'ml');
     }
   }, [transcript]);
 
@@ -151,18 +160,22 @@ const KrishiOfficerBot: React.FC = () => {
       // Add welcome message
       const welcomeMessage: ChatMessage = {
         id: generateMessageId(),
-        text: `നമസ്കാരം ${user?.name || 'കർഷക സഹോദരൻ/സഹോദരി'}! 🌾
+        text: `നമസ്കാരം ${user?.name || 'Friend'}! 🌾
 
-I'm Digital Krishi Officer, your AI farming assistant. I'm here to help you with:
+I'm Digital Krishi Officer, your AI assistant. I'm here to help you with:
 
-🌱 **Crop Management** - Best practices, pest control, disease prevention
-🚰 **Irrigation & Water** - Efficient watering techniques
-🌾 **Soil Health** - Testing, fertilizers, organic farming
-💰 **Government Schemes** - Subsidies, loans, insurance
-📈 **Market Information** - Prices, trends, selling tips
+🌱 **Agricultural Expertise** - Crop management, pest control, disease prevention, farming techniques
+🚰 **Irrigation & Water** - Efficient watering, water conservation methods
+🌾 **Soil Health** - Testing, fertilizers, organic farming practices
+💰 **Government Schemes** - Subsidies, loans, insurance for farmers
+📈 **Market Information** - Prices, trends, selling strategies
 🔬 **Modern Techniques** - Technology, equipment, sustainable farming
 
-How can I assist you today with your farming needs?
+**Plus Any Other Topics:**
+💻 Technology & Science | 📚 Education & Learning | 💊 Health & Wellness
+💼 Business & Finance | 🌍 Current Events | 🎭 Entertainment & Culture
+
+How can I assist you today? I can answer questions on farming or any other topic!
 
 എനിക്ക് മലയാളത്തിലും ഇംഗ്ലീഷിലും സംസാരിക്കാൻ കഴിയും!`,
         sender: 'bot',
@@ -233,13 +246,20 @@ How can I assist you today with your farming needs?
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
+
+    // Detect language from input if not voice input
+    if (!isVoiceInput) {
+      const detectedLang = detectLanguage(textToSend);
+      setCurrentLanguage(detectedLang as 'en' | 'ml');
+    }
     
     // Add user message
     const userMessage: ChatMessage = {
       id: generateMessageId(),
       text: textToSend,
       sender: 'user',
-      timestamp: new Date()
+      timestamp: new Date(),
+      language: currentLanguage
     };
 
     setMessages(prev => [...prev, userMessage]);
@@ -283,7 +303,8 @@ How can I assist you today with your farming needs?
           userCropType: user?.cropType,
           userLandSize: user?.acresOfLand
         },
-        context || undefined
+        context || undefined,
+        isVoiceInput // Pass voice input flag
       );
 
       // Add bot response
@@ -291,15 +312,19 @@ How can I assist you today with your farming needs?
         id: generateMessageId(),
         text: response.response || response.fallbackResponse || 'I apologize, but I encountered an issue. Please try again.',
         sender: 'bot',
-        timestamp: new Date()
+        timestamp: new Date(),
+        language: response.language
       };
 
       setMessages(prev => [...prev, botMessage]);
       
-      // Speak the message if voice is enabled
-      if (voiceEnabled) {
+      // Speak the message if voice is enabled AND it was a voice input
+      if (voiceEnabled && isVoiceInput) {
         speakMessage(botMessage.text);
       }
+
+      // Reset voice input flag
+      setIsVoiceInput(false);
 
       // Show error if API failed but we have fallback
       if (!response.success && response.fallbackResponse) {
@@ -312,16 +337,20 @@ How can I assist you today with your farming needs?
       // Add error message
       const errorMessage: ChatMessage = {
         id: generateMessageId(),
-        text: "I'm having trouble connecting right now. As Digital Krishi Officer, I'm here to help with farming questions. Please check your internet connection and try again!",
+        text: "I'm having trouble connecting right now. As Digital Krishi Officer, I'm here to help with farming questions, technology, education, health, or any other topic you'd like to discuss. Please check your internet connection and try again!",
         sender: 'bot',
-        timestamp: new Date()
+        timestamp: new Date(),
+        language: 'en'
       };
 
       setMessages(prev => [...prev, errorMessage]);
       
-      if (voiceEnabled) {
+      if (voiceEnabled && isVoiceInput) {
         speakMessage(errorMessage.text);
       }
+
+      // Reset voice input flag
+      setIsVoiceInput(false);
     } finally {
       setIsLoading(false);
     }
@@ -465,7 +494,7 @@ How can I assist you today with your farming needs?
       stopListening();
     } else {
       resetTranscript();
-      startListening();
+      startListening(currentLanguage);
     }
   };
 
@@ -589,7 +618,7 @@ How can I assist you today with your farming needs?
             )}
 
             {/* Suggestions */}
-            {showSuggestions && suggestions.length > 0 && messages.length <= 1 && (
+            {showSuggestions && suggestions[currentLanguage]?.length > 0 && messages.length <= 1 && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -597,10 +626,12 @@ How can I assist you today with your farming needs?
               >
                 <div className="flex items-center space-x-2 mb-3">
                   <Lightbulb className="h-4 w-4 text-amber-500" />
-                  <span className="text-sm font-medium text-gray-700">Quick Questions:</span>
+                  <span className="text-sm font-medium text-gray-700">
+                    {currentLanguage === 'ml' ? 'വേഗത്തിലുള്ള ചോദ്യങ്ങൾ:' : 'Quick Questions:'}
+                  </span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  {suggestions.slice(0, 6).map((suggestion, index) => (
+                  {suggestions[currentLanguage].slice(0, 6).map((suggestion: string, index: number) => (
                     <motion.button
                       key={index}
                       initial={{ opacity: 0, scale: 0.9 }}
@@ -612,6 +643,14 @@ How can I assist you today with your farming needs?
                       {suggestion}
                     </motion.button>
                   ))}
+                </div>
+                <div className="mt-3 flex justify-center">
+                  <button
+                    onClick={() => setCurrentLanguage(currentLanguage === 'en' ? 'ml' : 'en')}
+                    className="text-xs text-gray-500 hover:text-gray-700 px-3 py-1 rounded-full border border-gray-200 hover:border-gray-300 transition-colors"
+                  >
+                    {currentLanguage === 'en' ? 'മലയാളത്തിൽ കാണുക' : 'View in English'}
+                  </button>
                 </div>
               </motion.div>
             )}
