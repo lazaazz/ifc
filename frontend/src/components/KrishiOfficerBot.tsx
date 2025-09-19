@@ -41,7 +41,7 @@ const useSpeechRecognition = () => {
       
       recognitionRef.current.continuous = false;
       recognitionRef.current.interimResults = true;
-      recognitionRef.current.lang = 'ml-IN'; // Default to Malayalam
+      recognitionRef.current.lang = 'en-US'; // Default to English, will be changed dynamically
       
       // Add support for multiple languages
       recognitionRef.current.maxAlternatives = 3;
@@ -137,6 +137,43 @@ const KrishiOfficerBot: React.FC = () => {
     }
   }, [transcript]);
 
+  // Debug function to list available voices
+  const listAvailableVoices = () => {
+    if ('speechSynthesis' in window) {
+      const voices = window.speechSynthesis.getVoices();
+      console.log('Available voices:');
+      voices.forEach((voice, index) => {
+        console.log(`${index + 1}. ${voice.name} (${voice.lang}) - ${voice.localService ? 'Local' : 'Remote'}`);
+      });
+      return voices;
+    }
+    return [];
+  };
+
+  // Initialize voices on component mount
+  useEffect(() => {
+    if ('speechSynthesis' in window) {
+      // Load voices
+      const loadVoices = () => {
+        const voices = window.speechSynthesis.getVoices();
+        if (voices.length > 0) {
+          console.log('Speech synthesis voices loaded');
+          listAvailableVoices();
+        }
+      };
+      
+      // Voices might load asynchronously
+      if (window.speechSynthesis.getVoices().length === 0) {
+        window.speechSynthesis.onvoiceschanged = () => {
+          loadVoices();
+          window.speechSynthesis.onvoiceschanged = null;
+        };
+      } else {
+        loadVoices();
+      }
+    }
+  }, []);
+
   // Scroll to bottom when new messages arrive
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -188,46 +225,93 @@ How can I assist you today? I can answer questions on farming or any other topic
     initializeBot();
   }, [user]);
 
-  // Text-to-Speech function with language detection
+  // Text-to-Speech function with language detection and text cleaning
   const speakMessage = (text: string) => {
     if ('speechSynthesis' in window) {
       // Cancel any previous speech
       window.speechSynthesis.cancel();
       
-      const utterance = new SpeechSynthesisUtterance(text);
+      // Clean the text by removing markdown symbols and special characters
+      const cleanText = text
+        .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold markdown **text**
+        .replace(/\*(.*?)\*/g, '$1') // Remove italic markdown *text*
+        .replace(/#{1,6}\s/g, '') // Remove heading markers # ## ###
+        .replace(/```[\s\S]*?```/g, '') // Remove code blocks
+        .replace(/`([^`]+)`/g, '$1') // Remove inline code `text`
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // Remove links [text](url)
+        .replace(/[🌾🌱🚰💰📈🔬💻📚💊💼🌍🎭✅❌🔄⭐️📊🎯]/g, '') // Remove emojis
+        .replace(/[•\-*]\s/g, '') // Remove bullet points
+        .replace(/^\s*[\d]+\.\s/gm, '') // Remove numbered lists
+        .replace(/_{2,}/g, '') // Remove underscores
+        .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+        .trim();
+      
+      const utterance = new SpeechSynthesisUtterance(cleanText);
       
       // Detect language and set appropriate voice
       const containsMalayalam = /[\u0D00-\u0D7F]/.test(text);
       utterance.lang = containsMalayalam ? 'ml-IN' : 'en-US';
-      utterance.rate = 0.9;
+      utterance.rate = 0.8; // Slightly slower for better clarity
       utterance.pitch = 1;
+      utterance.volume = 0.9;
       
       // Function to get voices and speak
       const getVoicesAndSpeak = () => {
         const voices = window.speechSynthesis.getVoices();
         
         if (containsMalayalam) {
+          // Try to find Malayalam voice
           const malayalamVoice = voices.find(voice => 
-            voice.lang === 'ml-IN' || voice.lang.includes('ml')
+            voice.lang === 'ml-IN' || 
+            voice.lang.includes('ml') ||
+            voice.name.toLowerCase().includes('malayalam') ||
+            voice.name.toLowerCase().includes('india')
           );
           if (malayalamVoice) {
             utterance.voice = malayalamVoice;
+            console.log('Using Malayalam voice:', malayalamVoice.name);
+          } else {
+            // Fallback to any Indian English voice for Malayalam
+            const indianVoice = voices.find(voice => 
+              voice.lang === 'en-IN' || 
+              voice.name.toLowerCase().includes('india')
+            );
+            if (indianVoice) {
+              utterance.voice = indianVoice;
+              console.log('Using Indian English voice for Malayalam:', indianVoice.name);
+            }
           }
         } else {
+          // For English, prefer Indian English or US English
           const englishVoice = voices.find(voice => 
-            voice.lang === 'en-US' || voice.lang === 'en-IN'
+            voice.lang === 'en-IN' || 
+            voice.lang === 'en-US' ||
+            voice.name.toLowerCase().includes('india')
           );
           if (englishVoice) {
             utterance.voice = englishVoice;
+            console.log('Using English voice:', englishVoice.name);
           }
         }
+        
+        // Add error handling for speech synthesis
+        utterance.onerror = (event) => {
+          console.error('Speech synthesis error:', event.error);
+        };
+        
+        utterance.onend = () => {
+          console.log('Speech synthesis completed');
+        };
         
         window.speechSynthesis.speak(utterance);
       };
 
       // Voices may load asynchronously
       if (window.speechSynthesis.getVoices().length === 0) {
-        window.speechSynthesis.onvoiceschanged = getVoicesAndSpeak;
+        window.speechSynthesis.onvoiceschanged = () => {
+          getVoicesAndSpeak();
+          window.speechSynthesis.onvoiceschanged = null; // Remove listener after first call
+        };
       } else {
         getVoicesAndSpeak();
       }
@@ -719,7 +803,7 @@ How can I assist you today? I can answer questions on farming or any other topic
                 className={`p-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 ${
                   listening ? 'bg-red-500 text-white border-red-500' : 'border-gray-300 hover:bg-gray-100'
                 }`}
-                title={listening ? 'Stop listening' : 'Start voice input (Malayalam)'}
+                title={listening ? 'Stop listening' : `Start voice input (${currentLanguage === 'ml' ? 'Malayalam' : 'English'})`}
                 disabled={!browserSupportsSpeechRecognition || isProcessingFile}
               >
                 <Mic className="h-5 w-5" />
@@ -734,6 +818,23 @@ How can I assist you today? I can answer questions on farming or any other topic
               >
                 <Volume2 className="h-5 w-5" />
               </button>
+              
+              {/* Test Voice Button */}
+              {voiceEnabled && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const testText = currentLanguage === 'ml' 
+                      ? 'ഞാൻ ഡിജിറ്റൽ കൃഷി ഓഫീസറാണ്. മലയാളത്തിൽ സംസാരിക്കാൻ കഴിയും.' 
+                      : 'I am Digital Krishi Officer. I can speak in English.';
+                    speakMessage(testText);
+                  }}
+                  className="p-2 border border-blue-300 rounded-lg hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 text-blue-600"
+                  title="Test voice output"
+                >
+                  🔊
+                </button>
+              )}
               <div className="flex-1 relative">
                 <input
                   type="text"
@@ -741,10 +842,12 @@ How can I assist you today? I can answer questions on farming or any other topic
                   onChange={(e) => setInputMessage(e.target.value)}
                   placeholder={
                     listening 
-                      ? "Listening in Malayalam..."
+                      ? `Listening in ${currentLanguage === 'ml' ? 'Malayalam' : 'English'}...`
                       : documentId 
                         ? `Ask about ${uploadedFile?.name || 'the document'}...`
-                        : "Ask Digital Krishi Officer..."
+                        : currentLanguage === 'ml' 
+                          ? "കൃഷിയെക്കുറിച്ചോ മറ്റെന്തെങ്കിലുമോ ചോദിക്കൂ..."
+                          : "Ask about farming or any other topic..."
                   }
                   className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                   disabled={isLoading || isProcessingFile}
