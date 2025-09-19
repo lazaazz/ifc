@@ -54,29 +54,30 @@ export interface Product {
 }
 
 // Authentication functions
-export const signUpWithEmail = async (email: string, password: string, userData: Omit<User, 'uid' | 'email' | 'createdAt'>) => {
+export const signUpWithEmail = async (email: string, password: string, displayName: string) => {
   try {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
+    // Update the user's display name in Firebase Auth
+    await updateProfile(user, { displayName });
+    return { user, error: null };
+  } catch (error: any) {
+    console.error("Firebase Auth Error:", error.code, error.message);
+    return { user: null, error: error.message };
+  }
+};
 
-    // Update the user's display name
-    await updateProfile(user, {
-      displayName: userData.name
-    });
-
-    // Create user document in Firestore
+export const createUserProfile = async (userId: string, userData: Omit<User, 'uid' | 'createdAt'>) => {
+  try {
     const userDoc: User = {
-      uid: user.uid,
-      email: user.email!,
+      uid: userId,
       ...userData,
-      role: 'farmer', // Ensure role is always set to farmer
       createdAt: new Date()
     };
-
-    await setDoc(doc(db, 'users', user.uid), userDoc);
-
+    await setDoc(doc(db, 'users', userId), userDoc);
     return { user: userDoc, error: null };
   } catch (error: any) {
+    console.error("Firestore User Creation Error:", error);
     return { user: null, error: error.message };
   }
 };

@@ -3,6 +3,7 @@ import { User as FirebaseUser } from 'firebase/auth';
 import {
   User,
   signUpWithEmail,
+  createUserProfile,
   signInWithEmail,
   signOutUser,
   getCurrentUser,
@@ -70,15 +71,27 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const register = async (userData: any) => {
     try {
       setLoading(true);
-      const { email, password, ...userProfile } = userData;
+      const { email, password, name, ...profileData } = userData;
 
-      const { user: newUser, error } = await signUpWithEmail(email, password, userProfile);
-      
-      if (error) {
-        throw new Error(error);
+      // Step 1: Create user in Firebase Auth
+      const { user: firebaseUser, error: authError } = await signUpWithEmail(email, password, name);
+      if (authError || !firebaseUser) {
+        throw new Error(authError || "Firebase user creation failed.");
+      }
+
+      // Step 2: Create user profile in Firestore
+      const fullProfile = { 
+        email, 
+        name, 
+        role: 'farmer' as const,
+        ...profileData 
+      };
+      const { user: userProfile, error: profileError } = await createUserProfile(firebaseUser.uid, fullProfile);
+      if (profileError || !userProfile) {
+        throw new Error(profileError || "User profile creation failed.");
       }
       
-      setUser(newUser);
+      setUser(userProfile);
     } catch (error: any) {
       console.error("Registration Error:", error);
       throw new Error(error.message || 'Registration failed. Please check the console for more details.');

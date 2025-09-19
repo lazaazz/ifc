@@ -55,6 +55,7 @@ const Auth: React.FC = () => {
           name: formData.name,
           email: formData.email,
           password: formData.password,
+          role: 'farmer', // Add the role here
           phoneNumber: formData.phoneNumber,
           acresOfLand: formData.acresOfLand,
           age: parseInt(formData.age),
