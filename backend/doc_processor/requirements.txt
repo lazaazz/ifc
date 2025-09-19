@@ -1,0 +1,8 @@
+Flask
+Flask-Cors
+PyMuPDF
+faiss-cpu
+sentence-transformers
+numpy
+tf-keras
+protobuf

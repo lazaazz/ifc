@@ -1,22 +1,22 @@
-// filepath: c:\Users\intre\Desktop\76\backend\routes\auth.js
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
 
 const router = express.Router();
 
-// @route   POST /api/auth/register
-// @desc    Register new user
-// @access  Public
 router.post('/register', [
   body('name').trim().isLength({ min: 2, max: 50 }).withMessage('Name must be between 2-50 characters'),
   body('email').isEmail().normalizeEmail().withMessage('Please provide a valid email'),
   body('phoneNumber').matches(/^[0-9]{10}$/).withMessage('Please provide a valid 10-digit phone number'),
   body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
-  body('role').isIn(['owner', 'worker']).withMessage('Role must be either owner or worker'),
+  body('acresOfLand').isIn(['nil', '0-1', '1-5', '5-10', '10-25', '25-50', '50+']).withMessage('Please select valid acres of land'),
+  body('age').isInt({ min: 18, max: 100 }).withMessage('Age must be between 18 and 100'),
+  body('gender').isIn(['male', 'female', 'other']).withMessage('Please select valid gender'),
+  body('location').trim().isLength({ min: 2, max: 100 }).withMessage('Location must be between 2-100 characters'),
+  body('yearsOfExperience').isInt({ min: 0, max: 80 }).withMessage('Years of experience must be between 0 and 80'),
+  body('preferredLanguage').isIn(['english', 'malayalam', 'hindi']).withMessage('Please select a valid language'),
 ], async (req, res) => {
   try {
-    // Check for validation errors
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({
@@ -26,109 +26,69 @@ router.post('/register', [
       });
     }
 
-    const { 
-      name, 
-      email, 
-      phoneNumber, 
-      password, 
-      role, 
-      landSize, 
-      cropsGrown, 
-      soilType, 
-      age 
-    } = req.body;
+    const { name, email, phoneNumber, password, acresOfLand, age, gender, location, cropType, yearsOfExperience, preferredLanguage } = req.body;
 
-    // Check if user already exists
-    const existingUser = await User.findOne({ 
-      $or: [{ email }, { phoneNumber }] 
-    });
-
+    const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({
         success: false,
-        message: 'User already exists with this email or phone number'
+        message: 'User with this email already exists'
       });
     }
 
-    // Create user data object
     const userData = {
       name,
       email,
       phoneNumber,
       password,
-      role
+      role: 'farmer',
+      acresOfLand,
+      age: parseInt(age),
+      gender,
+      location,
+      yearsOfExperience: parseInt(yearsOfExperience),
+      preferredLanguage
     };
 
-    // Add role-specific fields
-    if (role === 'owner') {
-      if (!landSize || !cropsGrown || !soilType) {
-        return res.status(400).json({
-          success: false,
-          message: 'Owner registration requires landSize, cropsGrown, and soilType'
-        });
-      }
-      userData.landSize = landSize;
-      userData.cropsGrown = Array.isArray(cropsGrown) ? cropsGrown : [cropsGrown];
-      userData.soilType = soilType;
+    if (acresOfLand !== 'nil' && cropType) {
+      userData.cropType = cropType;
     }
 
-    if (role === 'worker') {
-      if (!age) {
-        return res.status(400).json({
-          success: false,
-          message: 'Worker registration requires age'
-        });
-      }
-      userData.age = age;
-    }
+    const user = new User(userData);
+    await user.save();
 
-    // Create user
-    const user = await User.create(userData);
-
-    // Remove password from response
-    const userResponse = {
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      phoneNumber: user.phoneNumber,
-      role: user.role,
-      ...(user.role === 'owner' && {
-        landSize: user.landSize,
-        cropsGrown: user.cropsGrown,
-        soilType: user.soilType
-      }),
-      ...(user.role === 'worker' && {
-        age: user.age
-      }),
-      isVerified: user.isVerified,
-      createdAt: user.createdAt
-    };
+    const userResponse = user.toObject();
+    delete userResponse.password;
 
     res.status(201).json({
       success: true,
-      message: 'User registered successfully',
+      message: 'Farmer registered successfully',
       user: userResponse
     });
 
   } catch (error) {
     console.error('Registration error:', error);
+    
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email already exists'
+      });
+    }
+
     res.status(500).json({
       success: false,
-      message: 'Server error during registration',
-      error: error.message
+      message: 'Registration failed',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });
 
-// @route   POST /api/auth/login
-// @desc    Login user
-// @access  Public
 router.post('/login', [
   body('email').isEmail().normalizeEmail().withMessage('Please provide a valid email'),
-  body('password').notEmpty().withMessage('Password is required'),
+  body('password').exists().withMessage('Password is required'),
 ], async (req, res) => {
   try {
-    // Check for validation errors
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({
@@ -140,46 +100,26 @@ router.post('/login', [
 
     const { email, password } = req.body;
 
-    // Find user and include password for comparison
-    const user = await User.findOne({ email }).select('+password');
-
+    const user = await User.findOne({ email });
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid email or password'
+        message: 'Invalid credentials'
       });
     }
 
-    // Check password
-    const isPasswordMatch = await user.matchPassword(password);
-
-    if (!isPasswordMatch) {
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid email or password'
+        message: 'Invalid credentials'
       });
     }
 
-    // Remove password from response
-    const userResponse = {
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      phoneNumber: user.phoneNumber,
-      role: user.role,
-      ...(user.role === 'owner' && {
-        landSize: user.landSize,
-        cropsGrown: user.cropsGrown,
-        soilType: user.soilType
-      }),
-      ...(user.role === 'worker' && {
-        age: user.age
-      }),
-      isVerified: user.isVerified,
-      createdAt: user.createdAt
-    };
+    const userResponse = user.toObject();
+    delete userResponse.password;
 
-    res.status(200).json({
+    res.json({
       success: true,
       message: 'Login successful',
       user: userResponse
@@ -189,29 +129,87 @@ router.post('/login', [
     console.error('Login error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error during login',
-      error: error.message
+      message: 'Login failed',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });
 
-// @route   GET /api/auth/users
-// @desc    Get all users (for testing)
-// @access  Public
-router.get('/users', async (req, res) => {
+router.get('/profile/:userId', async (req, res) => {
   try {
-    const users = await User.find().select('-password');
+    const user = await User.findById(req.params.userId).select('-password');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
 
-    res.status(200).json({
+    res.json({
       success: true,
-      count: users.length,
-      users
+      user
     });
+
   } catch (error) {
+    console.error('Profile fetch error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error',
-      error: error.message
+      message: 'Failed to fetch profile',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+router.put('/profile/:userId', [
+  body('name').optional().trim().isLength({ min: 2, max: 50 }).withMessage('Name must be between 2-50 characters'),
+  body('phoneNumber').optional().matches(/^[0-9]{10}$/).withMessage('Please provide a valid 10-digit phone number'),
+  body('acresOfLand').optional().isIn(['nil', '0-1', '1-5', '5-10', '10-25', '25-50', '50+']).withMessage('Please select valid acres of land'),
+  body('age').optional().isInt({ min: 18, max: 100 }).withMessage('Age must be between 18 and 100'),
+  body('gender').optional().isIn(['male', 'female', 'other']).withMessage('Please select valid gender'),
+  body('location').optional().trim().isLength({ min: 2, max: 100 }).withMessage('Location must be between 2-100 characters'),
+  body('yearsOfExperience').optional().isInt({ min: 0, max: 80 }).withMessage('Years of experience must be between 0 and 80'),
+  body('preferredLanguage').optional().isIn(['english', 'malayalam', 'hindi']).withMessage('Please select a valid language'),
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const updateData = { ...req.body };
+    if (updateData.age) updateData.age = parseInt(updateData.age);
+    if (updateData.yearsOfExperience) updateData.yearsOfExperience = parseInt(updateData.yearsOfExperience);
+
+    const user = await User.findByIdAndUpdate(
+      req.params.userId,
+      updateData,
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Profile updated successfully',
+      user
+    });
+
+  } catch (error) {
+    console.error('Profile update error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update profile',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });
